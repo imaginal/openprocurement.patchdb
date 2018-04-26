@@ -72,6 +72,7 @@ def get_with_retry(url, require_text=''):
             raise
         except Exception as e:
             LOG.error("{} on GET {}".format(e.__class__.__name__, url))
+            LOG.debug("Error {}".format(e))
             if i > 3:
                 raise
         for s in range(i * 10):
