@@ -47,10 +47,13 @@ def parse_command_line(argv):
     parser.add_argument('-i', '--ignore', action='append',
                         help='ignore some tenders by tender.id (not tenderID)')
     parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
-                        help='url to openprocurement.api')
-    parser.add_argument('--write', action='store_true', help='Allow changes to database')
+                        help='url to API (default 127.0.0.1:8080)')
     # patch auction
-    parser.add_argument('--auction-date', default='', help='auctionPeriod.startDate')
+    parser.add_argument('--auction-date', default='',
+                        help='auctionPeriod.startDate in ISO format')
+    # patch wrte
+    parser.add_argument('--write', action='store_true',
+                        help='Allow changes to couch database')
 
     args = parser.parse_args(argv[1:])
     return args
