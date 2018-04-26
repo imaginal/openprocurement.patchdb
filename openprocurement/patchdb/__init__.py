@@ -112,7 +112,7 @@ class PatchApp(object):
             LOG.info('{} {} no changes made'.format(tender.id, tender.tenderID))
             return
         new['revisions'].append({'author': 'patchdb', 'changes': patch, 'rev': tender.rev})
-        LOG.info('{} {} {}'.format(tender.id, tender.tenderID, patch))
+        LOG.info('{} {} changes {}'.format(tender.id, tender.tenderID, patch))
         self.changed += 1
         if not self.args.write:
             LOG.info('Not saved')
@@ -174,7 +174,7 @@ class PatchApp(object):
                 LOG.debug("Ignore {} by tender.id in command line args".format(docid))
                 continue
 
-            LOG.debug("Tender {} {}".format(docid, tender.tenderID))
+            LOG.debug("Tender {} {} {} {}".format(docid, tender.tenderID, tender.status, tender.dateModified))
 
             self.total += 1
 
