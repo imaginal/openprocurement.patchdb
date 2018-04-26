@@ -128,7 +128,7 @@ class PatchApp(object):
         LOG.debug("Check OK, found {}".format(check_text))
 
     def patch_auctionPeriod(self, tender, doc):
-        if tender.status != 'active.auction':
+        if tender.status not in ('active.tendering', 'active.auction'):
             return
         if 'auctionPeriod' not in doc or 'startDate' not in doc['auctionPeriod'] or not doc['auctionPeriod']['startDate']:
             return
