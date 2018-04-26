@@ -102,6 +102,7 @@ class PatchApp(object):
                             .format(args.patch_name, self.ALLOW_PATCHES))
         if args.patch_name == 'cancel_auction' and len(args.auction_date) < 10:
             raise ValueError("--auction-date required full date YYYY-MM-DD")
+        self.patch_func = getattr(self, args.patch_name)
         self.args = args
 
     def init_client(self):
@@ -143,6 +144,7 @@ class PatchApp(object):
                 if 'auctionPeriod' in lot and 'startDate' in lot['auctionPeriod'] and lot['auctionPeriod']['startDate']:
                     if self.args.auction_date and lot['auctionPeriod']['startDate'].startswith(self.args.auction_date):
                         lot['auctionPeriod'].pop('startDate')
+                        self.lots_changed += 1
                         changed = True
         else:
             if 'auctionPeriod' in doc and 'startDate' in doc['auctionPeriod'] and doc['auctionPeriod']['startDate']:
@@ -155,7 +157,7 @@ class PatchApp(object):
             self.save_tender(tender, doc, new)
             self.check_tender(tender, tender.tenderID)
 
-    def patch(self):
+    def patch_all(self):
         args = self.args
         config = ConfigParser()
         config.read(args.config)
@@ -167,9 +169,7 @@ class PatchApp(object):
         server = Server(settings.get('couchdb.url'), session=Session(retry_delays=range(10)))
         self.db = db = server[db_name]
 
-        self.total = self.changed = self.saved = 0
-
-        patch_func = getattr(self, args.patch_name)
+        self.total = self.changed = self.lots_changed = self.saved = 0
 
         for docid in db:
             doc = db.get(docid)
@@ -195,7 +195,7 @@ class PatchApp(object):
 
             self.total += 1
 
-            patch_func(tender, doc)
+            self.patch_func(tender, doc)
 
         LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
         self.db = None
@@ -212,7 +212,7 @@ def main():
     app = PatchApp(args)
 
     try:
-        app.patch()
+        app.patch_all()
     except KeyboardInterrupt:
         LOG.error('Program interrupted!')
     finally:
