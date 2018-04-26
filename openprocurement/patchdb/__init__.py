@@ -135,15 +135,24 @@ class PatchApp(object):
     def cancel_auction(self, tender, doc):
         if tender.status not in ('active.tendering', 'active.auction'):
             return
-        if 'auctionPeriod' not in doc or 'startDate' not in doc['auctionPeriod'] or not doc['auctionPeriod']['startDate']:
-            return
-        if not self.args.auction_date or not doc['auctionPeriod']['startDate'].startswith(self.args.auction_date):
-            return
-        new = deepcopy(doc)
-        new['auctionPeriod'].pop('startDate')
-        new['next_check'] = (get_now() + timedelta(minutes=10)).isoformat()
-        self.save_tender(tender, doc, new)
-        self.check_tender(tender, tender.tenderID)
+        changed = False
+        if 'lots' in doc and doc['lots']:
+            new = deepcopy(doc)
+            for lot in new['lots']:
+                if 'auctionPeriod' in lot and 'startDate' in lot['auctionPeriod'] and lot['auctionPeriod']['startDate']:
+                    if self.args.auction_date and lot['auctionPeriod']['startDate'].startswith(self.args.auction_date):
+                        lot['auctionPeriod'].pop('startDate')
+                        changed = True
+        else:
+            if 'auctionPeriod' in doc and 'startDate' in doc['auctionPeriod'] and doc['auctionPeriod']['startDate']:
+                if self.args.auction_date and doc['auctionPeriod']['startDate'].startswith(self.args.auction_date):
+                    new = deepcopy(doc)
+                    new['auctionPeriod'].pop('startDate')
+                    changed = True
+        if changed:
+            new['next_check'] = (get_now() + timedelta(minutes=10)).isoformat()
+            self.save_tender(tender, doc, new)
+            self.check_tender(tender, tender.tenderID)
 
     def patch(self):
         args = self.args
