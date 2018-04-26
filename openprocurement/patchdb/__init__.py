@@ -10,10 +10,10 @@ from ConfigParser import ConfigParser
 from couchdb import Server, Session
 from datetime import timedelta
 from jsonpatch import make_patch
-from .models import Tender, get_now, parse_local_date
+from .models import Tender, get_now
 
 
-__version__ = '0.2b'
+__version__ = '0.3b'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
@@ -94,7 +94,7 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
-    ALLOW_PATCHES = ['cancel_auction']
+    ALLOW_PATCHES = ['cancel_auction', 'remove_auction_options']
 
     def __init__(self, args):
         if args.patch_name not in self.ALLOW_PATCHES:
@@ -154,6 +154,15 @@ class PatchApp(object):
                     changed = True
         if changed:
             new['next_check'] = (get_now() + timedelta(minutes=10)).isoformat()
+            self.save_tender(tender, doc, new)
+            self.check_tender(tender, tender.tenderID)
+
+    def remove_auction_options(self, tender, doc):
+        if tender.status in ('complete', 'unsuccessful', 'cancelled'):
+            return
+        if 'auctionOptions' in doc and doc['auctionOptions']:
+            new = deepcopy(doc)
+            new.pop('auctionOptions')
             self.save_tender(tender, doc, new)
             self.check_tender(tender, tender.tenderID)
 
