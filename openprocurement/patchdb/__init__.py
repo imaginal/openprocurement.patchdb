@@ -93,9 +93,14 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
+    ALLOW_PATCHES = ['cancel_auction']
+
     def __init__(self, args):
-        if args.patch_name == 'auction' and len(args.auction_date) < 10:
-            raise ValueError('--auction-date required full date YYYY-MM-DD')
+        if args.patch_name not in self.ALLOW_PATCHES:
+            raise ValueError("Unknown patch name '{}' allow one of {}"
+                            .format(args.patch_name, self.ALLOW_PATCHES))
+        if args.patch_name == 'cancel_auction' and len(args.auction_date) < 10:
+            raise ValueError("--auction-date required full date YYYY-MM-DD")
         self.args = args
 
     def init_client(self):
@@ -127,7 +132,7 @@ class PatchApp(object):
         get_with_retry(url, check_text)
         LOG.debug("Check OK, found {}".format(check_text))
 
-    def patch_auctionPeriod(self, tender, doc):
+    def cancel_auction(self, tender, doc):
         if tender.status not in ('active.tendering', 'active.auction'):
             return
         if 'auctionPeriod' not in doc or 'startDate' not in doc['auctionPeriod'] or not doc['auctionPeriod']['startDate']:
@@ -154,6 +159,8 @@ class PatchApp(object):
 
         self.total = self.changed = self.saved = 0
 
+        patch_func = getattr(self, args.patch_name)
+
         for docid in db:
             doc = db.get(docid)
             if doc.get('doc_type') != 'Tender':
@@ -178,8 +185,7 @@ class PatchApp(object):
 
             self.total += 1
 
-            if args.patch_name == 'auction':
-                self.patch_auctionPeriod(tender, doc)
+            patch_func(tender, doc)
 
         LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
         del self.db
