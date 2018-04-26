@@ -13,7 +13,7 @@ from jsonpatch import make_patch
 from .models import Tender, get_now, parse_local_date
 
 
-__version__ = '0.1b1'
+__version__ = '0.2b'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
