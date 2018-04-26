@@ -197,7 +197,8 @@ class PatchApp(object):
             patch_func(tender, doc)
 
         LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
-        del self.db
+        self.db = None
+        server = None
 
 
 def main():
