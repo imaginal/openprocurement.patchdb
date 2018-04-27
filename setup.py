@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 version = re.search(
     r'__version__\s*=\s*[\'"]([^\'"]+)[\'"]',
-    open('openprocurement/patchdb/__init__.py').read()
+    open('openprocurement/patchdb/main.py').read()
 ).group(1)
 
 requires = [
@@ -19,7 +19,7 @@ requires = [
 # ]
 entry_points = {
     'console_scripts': [
-        'patchdb=openprocurement.patchdb:main',
+        'patchdb=openprocurement.patchdb.main:main',
     ]
 }
 

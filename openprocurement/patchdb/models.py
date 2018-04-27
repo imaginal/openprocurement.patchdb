@@ -3,7 +3,7 @@ from pytz import timezone
 from datetime import datetime
 from iso8601 import parse_date, ParseError
 from couchdb_schematics.document import SchematicsDocument
-from schematics.exceptions import ConversionError
+from schematics.exceptions import ConversionError, ValidationError
 from schematics.models import Model
 from schematics.types import BaseType, StringType
 from schematics.types.compound import DictType, ListType, ModelType as BaseModelType
