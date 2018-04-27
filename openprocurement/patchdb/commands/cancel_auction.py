@@ -24,12 +24,14 @@ class Command(BaseCommand):
             new = deepcopy(doc)
             for lot in new['lots']:
                 if 'auctionPeriod' in lot and 'startDate' in lot['auctionPeriod'] and lot['auctionPeriod']['startDate']:
-                    if self.auction_date and lot['auctionPeriod']['startDate'].startswith(self.auction_date):
+                    patcher.logger.debug("{} lot {} auctionPeriod {}".format(tender.id, lot['id'], lot['auctionPeriod']))
+                    if 'endDate' not in lot['auctionPeriod'] and lot['auctionPeriod']['startDate'].startswith(self.auction_date):
                         lot['auctionPeriod'].pop('startDate')
                         changed = True
         else:
             if 'auctionPeriod' in doc and 'startDate' in doc['auctionPeriod'] and doc['auctionPeriod']['startDate']:
-                if self.auction_date and doc['auctionPeriod']['startDate'].startswith(self.auction_date):
+                patcher.logger.debug("{} auctionPeriod {}".format(tender.id, doc['auctionPeriod']))
+                if 'endDate' not in doc['auctionPeriod'] and doc['auctionPeriod']['startDate'].startswith(self.auction_date):
                     new = deepcopy(doc)
                     new['auctionPeriod'].pop('startDate')
                     changed = True

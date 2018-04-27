@@ -182,6 +182,7 @@ def main():
     level = max(3 - app.args.verbose_count, 0) * 10
     logging.basicConfig(stream=app.args.log, level=level, format='%(asctime)-15s %(levelname)s %(message)s')
     LOG.setLevel(level)
+    app.logger = LOG
 
     try:
         app.patch_all()
