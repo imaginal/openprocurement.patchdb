@@ -74,7 +74,6 @@ class ModelType(BaseModelType):
 
 
 class Tender(SchematicsDocument, Model):
-    auctionPeriod = ModelType(TenderAuctionPeriod, default={})
     dateModified = IsoDateTimeType()
     revisions = ListType(ModelType(Revision), default=list())
     tenderID = StringType()
