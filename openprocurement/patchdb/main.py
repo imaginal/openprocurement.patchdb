@@ -12,7 +12,7 @@ from jsonpatch import make_patch
 from openprocurement.patchdb.models import Tender
 
 
-__version__ = '0.4b'
+__version__ = '0.4b2'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
@@ -73,10 +73,14 @@ class PatchApp(object):
                             help='start tenderID in format UA-YYYY-MM-DD')
         parser.add_argument('-b', '--before', metavar='TENDER_ID',
                             help='end tenderID in format UA-YYYY-MM-DD')
+        parser.add_argument('-t', '--tenderID', action='append',
+                            help='process only these tenderID (may be multiple times)')
+        parser.add_argument('-d', '--docid', action='append',
+                            help='process only these hex id (may be multiple times)')
+        parser.add_argument('-x', '--except', action='append', dest='ignore_ids',
+                            help='ignore some tenders by tender.id (not tenderID)')
         parser.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
-        parser.add_argument('-i', '--ignore', action='append',
-                            help='ignore some tenders by tender.id (not tenderID)')
         parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
                             help='url to API (default 127.0.0.1:8080)')
         parser.add_argument('--write', action='store_true',
@@ -158,11 +162,17 @@ class PatchApp(object):
             if args.before and tender.tenderID > args.before:
                 LOG.debug("Ignore {} by tenderID {}".format(docid, tender.tenderID))
                 continue
+            if args.tenderID and tender.tenderID not in args.tenderID:
+                LOG.debug("Ignore {} by tenderID {} not in -t/--tenderID".format(docid, tender.tenderID))
+                continue
             if args.status and tender.status not in args.status:
                 LOG.debug("Ignore {} by status {}".format(docid, tender.status))
                 continue
-            if args.ignore and tender.id in args.ignore:
-                LOG.debug("Ignore {} by tender.id in command line args".format(docid))
+            if args.docid and tender.id not in args.docid:
+                LOG.debug("Ignore {} by tender.id in -d/--docid".format(docid))
+                continue
+            if args.ignore_ids and tender.id in args.ignore_ids:
+                LOG.debug("Ignore {} by tender.id in -x/--except".format(docid))
                 continue
 
             LOG.debug("Tender {} {} {} {}".format(docid, tender.tenderID, tender.status, tender.dateModified))
