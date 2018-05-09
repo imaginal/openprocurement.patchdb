@@ -20,5 +20,7 @@ class Command(BaseCommand):
             new = deepcopy(doc)
             new.pop('_rev')
             patcher.create_tender(new)
-            tender = Tender().import_data(new, partial=True)
-            patcher.check_tender(tender, tender.tenderID, check_write=True)
+            new_tender = Tender().import_data(new, partial=True)
+            patcher.check_tender(new_tender, new_tender.tenderID, check_write=True)
+
+        patcher.check_tender(tender, tender.tenderID)
