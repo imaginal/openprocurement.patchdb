@@ -9,10 +9,10 @@ import importlib
 from ConfigParser import ConfigParser
 from couchdb import Server, Session
 from jsonpatch import make_patch
-from openprocurement.patchdb.models import Tender
+from openprocurement.patchdb.models import Tender, generate_id, generate_tender_id
 
 
-__version__ = '0.5'
+__version__ = '0.6b1'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
@@ -43,7 +43,7 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
-    ALLOW_PATCHES = ['cancel_auction', 'remove_auction_options']
+    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options']
 
     def __init__(self, argv):
         self.load_commands()
@@ -79,6 +79,8 @@ class PatchApp(object):
                             help='process only these hex id (may be multiple times)')
         parser.add_argument('-x', '--except', action='append', dest='ignore_ids',
                             help='ignore some tenders by tender.id (not tenderID)')
+        parser.add_argument('-p', '--procedure', action='append', dest='method_types',
+                            help='filter by tender procurementMethodType (default any)')
         parser.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
         parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
@@ -114,6 +116,26 @@ class PatchApp(object):
             self.api_url += '/api/2.3/tenders'
         get_with_retry(self.api_url, 'data')
 
+    def create_tender(self, tender):
+        if '_rev' in tender:
+            raise ValueError('Cant create tender with _rev')
+        old_id = tender.get('_id', '-')
+        old_tenderID = tender.get('tenderID', '-')
+        tender['_id'] = generate_id()
+        tender['tenderID'] = generate_tender_id(tender['tenderID'], self.db, self.server_id, write=self.args.write)
+        if old_id:
+            LOG.info('Clone {} {} to {} {}'.format(old_id, old_tenderID, tender['_id'], tender['tenderID']))
+        else:
+            LOG.info('Create {} {}'.format(tender['_id'], tender['tenderID']))
+        self.created += 1
+        if not self.args.write:
+            LOG.info('Not saved')
+            return False
+        doc_id, doc_rev = self.db.save(tender)
+        LOG.info('Saved {} rev {}'.format(doc_id, doc_rev))
+        self.saved += 1
+        return True
+
     def save_tender(self, tender, old, new):
         patch = get_revision_changes(new, old)
         if not patch:
@@ -130,7 +152,10 @@ class PatchApp(object):
         self.saved += 1
         return True
 
-    def check_tender(self, tender, check_text):
+    def check_tender(self, tender, check_text, check_write=False):
+        if check_write and not self.args.write:
+            LOG.debug("Not Checked {}".format(tender.id))
+            return
         url = "{}/{}".format(self.api_url, tender.id)
         get_with_retry(url, check_text)
         LOG.debug("Check OK, found {}".format(check_text))
@@ -146,10 +171,13 @@ class PatchApp(object):
         db_name = os.environ.get('DB_NAME', settings['couchdb.db_name'])
         server = Server(settings.get('couchdb.url'), session=Session(retry_delays=range(10)))
         self.db = db = server[db_name]
+        self.server_id = settings.get('id', '1')
 
-        self.total = self.changed = self.saved = 0
+        self.total = self.changed = self.created = self.saved = 0
 
-        for docid in db:
+        docs_list = args.docid if args.docid else db
+
+        for docid in docs_list:
             doc = db.get(docid)
             if doc.get('doc_type') != 'Tender':
                 continue
@@ -173,6 +201,9 @@ class PatchApp(object):
                 continue
             if args.ignore_ids and tender.id in args.ignore_ids:
                 LOG.debug("Ignore {} by tender.id in -x/--except".format(docid))
+                continue
+            if args.method_types and tender.procurementMethodType not in args.method_types:
+                LOG.debug("Ignore {} by procurementMethodType {}".format(docid, tender.procurementMethodType))
                 continue
 
             LOG.debug("Tender {} {} {} {}".format(docid, tender.tenderID, tender.status, tender.dateModified))
