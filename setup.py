@@ -14,9 +14,7 @@ requires = [
     'requests',
     'setuptools',
 ]
-# test_requires = requires + [
-#     'python-coveralls',
-# ]
+
 entry_points = {
     'console_scripts': [
         'patchdb=openprocurement.patchdb.main:main',
@@ -45,7 +43,5 @@ setup(
     include_package_data=True,
     zip_safe=False,
     install_requires=requires,
-    # tests_require=test_requires,
-    # test_suite="openprocurement.patchdb.tests.main.suite",
     entry_points=entry_points
 )

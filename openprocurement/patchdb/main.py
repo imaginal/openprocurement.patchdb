@@ -12,7 +12,7 @@ from jsonpatch import make_patch
 from openprocurement.patchdb.models import Tender, generate_id, generate_tender_id
 
 
-__version__ = '0.6b1'
+__version__ = '0.6'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
@@ -154,7 +154,7 @@ class PatchApp(object):
 
     def check_tender(self, tender, check_text, check_write=False):
         if check_write and not self.args.write:
-            LOG.debug("Not Checked {}".format(tender.id))
+            LOG.debug("Not checked {}".format(tender.id))
             return
         url = "{}/{}".format(self.api_url, tender.id)
         get_with_retry(url, check_text)
@@ -179,7 +179,11 @@ class PatchApp(object):
 
         for docid in docs_list:
             doc = db.get(docid)
+            if not doc:
+                LOG.warning("Not found {}".format(docid))
+                continue
             if doc.get('doc_type') != 'Tender':
+                LOG.debug("Ignore {} by doc_type {}".format(docid, doc.get('doc_type')))
                 continue
             tender = Tender().import_data(doc, partial=True)
             if not tender.tenderID:
