@@ -1,4 +1,7 @@
 import os
+import re
+from time import sleep
+from uuid import uuid4
 from pytz import timezone
 from datetime import datetime
 from iso8601 import parse_date, ParseError
@@ -10,10 +13,58 @@ from schematics.types.compound import DictType, ListType, ModelType as BaseModel
 
 
 TZ = timezone(os.environ['TZ'] if 'TZ' in os.environ else 'Europe/Kiev')
+DB_SHADOW = dict()
 
 
 def get_now():
     return datetime.now(TZ)
+
+
+def generate_id():
+    return uuid4().hex
+
+
+def shadow_get(db, key, default):
+    if key in DB_SHADOW:
+        return DB_SHADOW[key]
+    return db.get(key, default)
+
+
+def shadow_save(db, doc, write=False):
+    if write:
+        return db.save(doc)
+    key = doc['_id']
+    DB_SHADOW[key] = doc
+
+
+def generate_tender_id(tenderID, db, server_id=None, write=False):
+    # for UA-2017-07-12-000293-c
+    # group(1): UA-
+    # group(2): 2017-07-12
+    # group(3): 000293
+    # group(4): -c
+    m = re.match(r'([\w\d\-]{1,10}-)(\d{4}-\d{2}-\d{2})-(\d{6})(-[\w\d]{1,3})?', tenderID)
+    if not m:
+        raise ValueError('tenderID dont match standart regex')
+    if not server_id and m.group(4):
+        server_id = m.group(4)[1:]
+    key = m.group(2)
+    tenderIDdoc = 'tenderID_' + server_id if server_id else 'tenderID'
+    retry = 10
+    while retry > 0:
+        retry -= 1
+        try:
+            tenderID = shadow_get(db, tenderIDdoc, {'_id': tenderIDdoc})
+            index = tenderID.get(key, 1)
+            tenderID[key] = index + 1
+            shadow_save(db, tenderID, write)
+        except Exception as e:  # pragma: no cover
+            if not retry:
+                raise e
+            sleep(0.1)
+        else:
+            break
+    return '{}{}-{:06}{}'.format(m.group(1), m.group(2), index, server_id and '-' + server_id)
 
 
 def parse_local_date(s):
@@ -75,6 +126,7 @@ class ModelType(BaseModelType):
 
 class Tender(SchematicsDocument, Model):
     dateModified = IsoDateTimeType()
+    procurementMethodType = StringType()
     revisions = ListType(ModelType(Revision), default=list())
     tenderID = StringType()
     status = StringType()
