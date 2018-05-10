@@ -61,12 +61,15 @@ class PatchApp(object):
         parser.add_argument('-v', '--verbose', dest='verbose_count',
                             action='count', default=0,
                             help='for more verbose use multiple times')
+        parser.add_argument('-q', '--quiet', dest='quiet_count',
+                            action='count', default=0,
+                            help='for more quiet use multiple times')
         parser.add_argument('-l', '--log',
                             type=argparse.FileType('at'), default=sys.stderr,
                             help='redirect log to a file')
-        parser.add_argument('-o', '--output',
-                            type=argparse.FileType('w'), default=sys.stdout,
-                            help='redirect output to a file')
+        # parser.add_argument('-o', '--output',
+        #                     type=argparse.FileType('w'), default=sys.stdout,
+        #                     help='redirect output to a file')
         parser.add_argument('-k', '--section', default='app:api',
                             help='section name in config, default [app:api]')
         parser.add_argument('-a', '--after', metavar='TENDER_ID',
@@ -77,9 +80,9 @@ class PatchApp(object):
                             help='process only these tenderID (may be multiple times)')
         parser.add_argument('-d', '--docid', action='append',
                             help='process only these hex id (may be multiple times)')
-        parser.add_argument('-x', '--except', action='append', dest='ignore_ids',
-                            help='ignore some tenders by tender.id (not tenderID)')
-        parser.add_argument('-p', '--procedure', action='append', dest='method_types',
+        parser.add_argument('-x', '--except', action='append', dest='ignore_id',
+                            help='ignore some tenders by hex tender.id (not tenderID)')
+        parser.add_argument('-p', '--procedure', action='append', dest='method_type',
                             help='filter by tender procurementMethodType (default any)')
         parser.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
@@ -203,10 +206,10 @@ class PatchApp(object):
             if args.docid and tender.id not in args.docid:
                 LOG.debug("Ignore {} by tender.id in -d/--docid".format(docid))
                 continue
-            if args.ignore_ids and tender.id in args.ignore_ids:
+            if args.ignore_id and tender.id in args.ignore_id:
                 LOG.debug("Ignore {} by tender.id in -x/--except".format(docid))
                 continue
-            if args.method_types and tender.procurementMethodType not in args.method_types:
+            if args.method_type and tender.procurementMethodType not in args.method_type:
                 LOG.debug("Ignore {} by procurementMethodType {}".format(docid, tender.procurementMethodType))
                 continue
 
@@ -224,7 +227,7 @@ class PatchApp(object):
 def main():
     app = PatchApp(sys.argv)
 
-    level = max(3 - app.args.verbose_count, 0) * 10
+    level = max(logging.INFO + 10 * app.args.quiet_count - 10 * app.args.verbose_count, logging.DEBUG)
     logging.basicConfig(stream=app.args.log, level=level, format='%(asctime)-15s %(levelname)s %(message)s')
     LOG.setLevel(level)
     app.logger = LOG
