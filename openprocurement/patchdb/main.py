@@ -56,6 +56,8 @@ class PatchApp(object):
         parser.add_argument('config', help='path to openprocurement.api.ini')
         parser.add_argument('patch_name', metavar='patch_name', choices=self.commands.keys(),
                             help='name of the applied patch')
+        parser.add_argument('--help-patches', action='store_true',
+                            help='Print list of all known patches')
         parser.add_argument('--version', action='version',
                             version='%(prog)s {}'.format(__version__))
         parser.add_argument('-v', '--verbose', dest='verbose_count',
@@ -90,6 +92,10 @@ class PatchApp(object):
                             help='url to API (default 127.0.0.1:8080)')
         parser.add_argument('--write', action='store_true',
                             help='Allow changes to couch database')
+
+        if '--help-patches' in argv:
+            print("Available patches: {}".format(", ".join(self.commands.keys())))
+            sys.exit(0)
 
         for cmd in self.commands.values():
             cmd.add_arguments(parser)
