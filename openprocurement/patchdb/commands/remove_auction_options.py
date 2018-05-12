@@ -6,7 +6,7 @@ class Command(BaseCommand):
     help = 'Remove unnecessary auctionOptions from tender'
 
     def patch_tender(self, patcher, tender, doc):
-        if tender.status in ('complete', 'unsuccessful', 'cancelled'):
+        if tender.procurementMethodType != 'belowThresholdRFP':
             return
         if 'auctionOptions' in doc and doc['auctionOptions']:
             new = deepcopy(doc)
