@@ -21,7 +21,7 @@ class Command(BaseCommand):
             new.pop('_rev')
             for key in ('title', 'title_en', 'title_ru', 'description', 'description_en', 'description_ru'):
                 if key in new:
-                    new[key] += ' (clone #{})'.format(n)
+                    new[key] += ' (clone {} of {} {})'.format(n+1, tender.id, tender.tenderID)
             patcher.create_tender(new)
             new_tender = Tender().import_data(new, partial=True)
             patcher.check_tender(new_tender, new_tender.tenderID, check_write=True)
