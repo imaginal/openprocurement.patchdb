@@ -43,7 +43,7 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
-    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options']
+    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options', 'remove_auction_period']
 
     def __init__(self, argv):
         self.load_commands()
