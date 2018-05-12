@@ -12,7 +12,7 @@ from jsonpatch import make_patch
 from openprocurement.patchdb.models import Tender, generate_id, generate_tender_id
 
 
-__version__ = '0.6.2'
+__version__ = '0.7'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
