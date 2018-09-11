@@ -43,7 +43,8 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
-    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options', 'remove_auction_period']
+    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options', 'remove_auction_period',
+                     'replace_documents_url']
 
     def __init__(self, argv):
         self.load_commands()
@@ -57,7 +58,7 @@ class PatchApp(object):
         parser.add_argument('patch_name', metavar='patch_name', choices=self.commands.keys(),
                             help='name of the applied patch')
         parser.add_argument('--help-patches', action='store_true',
-                            help='Print list of all known patches')
+                            help='print list of all known patches')
         parser.add_argument('--version', action='version',
                             version='%(prog)s {}'.format(__version__))
         parser.add_argument('-v', '--verbose', dest='verbose_count',
@@ -88,10 +89,12 @@ class PatchApp(object):
                             help='filter by tender procurementMethodType (default any)')
         parser.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
+        parser.add_argument('-n', '--limit', type=int, default=-1,
+                            help='stop after found and patch N tenders')
         parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
                             help='url to API (default 127.0.0.1:8080)')
         parser.add_argument('--write', action='store_true',
-                            help='Allow changes to couch database')
+                            help='allow changes to couch database')
 
         if '--help-patches' in argv:
             print("Available patches: {}".format(", ".join(self.commands.keys())))
@@ -221,9 +224,13 @@ class PatchApp(object):
 
             LOG.debug("Tender {} {} {} {}".format(docid, tender.tenderID, tender.status, tender.dateModified))
 
+            self.patch.patch_tender(self, tender, doc)
+
             self.total += 1
 
-            self.patch.patch_tender(self, tender, doc)
+            if args.limit > 0 and self.total >= args.limit:
+                LOG.info("Stop after limit {} reached".format(self.total))
+                break
 
         LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
         self.db = None
