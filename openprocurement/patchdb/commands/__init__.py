@@ -2,7 +2,8 @@
 class BaseCommand(object):
     help = ''
 
-    def add_arguments(self, parser):
+    @staticmethod
+    def add_arguments(parser):
         pass
 
     def check_arguments(self, args):

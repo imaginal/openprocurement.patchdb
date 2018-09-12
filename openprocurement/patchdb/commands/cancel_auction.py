@@ -5,9 +5,10 @@ from openprocurement.patchdb.models import get_now
 
 
 class Command(BaseCommand):
-    help = 'Cancel auction planning by remove auctionPeriod.startDate'
+    help = 'Cancel planned auction by removing startDate in auctionPeriod'
 
-    def add_arguments(self, parser):
+    @staticmethod
+    def add_arguments(parser):
         parser.add_argument('--auction-date', default='',
                             help='auctionPeriod.startDate in ISO format')
 
