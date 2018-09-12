@@ -187,7 +187,12 @@ class PatchApp(object):
             LOG.info('Not saved')
             return False
         if self.args.dateModified:
+            old_dateModified = new.get('dateModified', '')
             new['dateModified'] = get_now()
+            if old_dateModified and new['dateModified'] < old_dateModified:
+                raise ValueError(
+                    "Tender {} dateModified {} greater than new {}".format(
+                    new['id'], old_dateModified, new['dateModified']))
         return self.save_with_retry(new)
 
     def check_tender(self, tender, check_text, check_write=False):
