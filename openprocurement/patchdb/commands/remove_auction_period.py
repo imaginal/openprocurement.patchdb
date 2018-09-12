@@ -3,7 +3,7 @@ from openprocurement.patchdb.commands import BaseCommand
 
 
 class Command(BaseCommand):
-    help = 'Remove unnecessary auctionPeriod from belowThresholdRFP tender'
+    help = 'Remove unnecessary auctionPeriod from RFP'
 
     def patch_tender(self, patcher, tender, doc):
         if tender.procurementMethodType != 'belowThresholdRFP':
