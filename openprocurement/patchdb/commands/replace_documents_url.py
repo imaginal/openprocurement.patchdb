@@ -4,13 +4,14 @@ from openprocurement.patchdb.commands import BaseCommand
 
 
 class Command(BaseCommand):
-    help = 'Replace domain in documents url'
+    help = 'Replace domain in documents or auction URL'
     required_document_fields = set(['id', 'title', 'format', 'url'])
     required_auction_fields = set(['id', 'title', 'value', 'auctionUrl'])
     auction_url_search = None
     doc_url_search = None
 
-    def add_arguments(self, parser):
+    @staticmethod
+    def add_arguments(parser):
         parser.add_argument('--doc-url-search', default='',
                             help='document URL to search (regexp)')
         parser.add_argument('--doc-url-replace', default='',
@@ -32,11 +33,11 @@ class Command(BaseCommand):
 
     def document_replace_url(self, doc):
         if self.doc_url_search and self.doc_url_search.search(doc['url']):
-            doc['url'] = self.doc_url_search.sub(self.url_replace, doc['url'])
+            doc['url'] = self.doc_url_search.sub(self.doc_url_replace, doc['url'])
 
     def auction_replace_url(self, doc):
         if self.auction_url_search and self.auction_url_search.search(doc['auctionUrl']):
-            doc['auctionUrl'] = self.auction_url_search.sub(self.auction_replace, doc['auctionUrl'])
+            doc['auctionUrl'] = self.auction_url_search.sub(self.auction_url_replace, doc['auctionUrl'])
 
     def recursive_find_and_replace(self, root):
         if isinstance(root, dict):
