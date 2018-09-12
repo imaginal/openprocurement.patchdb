@@ -10,6 +10,7 @@ import importlib
 import threading
 from ConfigParser import ConfigParser
 from couchdb import Server, Session
+from datetime import datetime
 from jsonpatch import make_patch
 from openprocurement.patchdb.models import Tender, generate_id, generate_tender_id
 
@@ -60,77 +61,74 @@ class PatchApp(object):
 
     def parse_arguments(self, argv):
         formatter_class = argparse.RawDescriptionHelpFormatter
-        parser = argparse.ArgumentParser(description='Console utility for patching tender documents in couchdb',
-                                         formatter_class=formatter_class)
-        parser.add_argument('config', help='path to openprocurement.api.ini')
-        parser.add_argument('patch_name', metavar='patch_name', choices=self.commands.keys(),
-                            help='name of the applied patch')
-        parser.add_argument('--help-patches', action='store_true',
-                            help='print list of all known patches')
+        epilog = "patchdb v{}".format(__version__)
+        parser = argparse.ArgumentParser(description='Console utility for patching tender documents direct in couchdb',
+                                         formatter_class=formatter_class, epilog=epilog)
         parser.add_argument('--version', action='version',
                             version='%(prog)s {}'.format(__version__))
-        parser.add_argument('-v', '--verbose', dest='verbose_count',
+        subparsers = parser.add_subparsers(dest='patch_name', metavar='patch_name')
+
+        common = argparse.ArgumentParser(add_help=False)
+        common.add_argument('-c', '--config', required=True,
+                            help='path to openprocurement.api.ini (required)')
+        common.add_argument('-r', '--concurrency', type=int, default=0,
+                            help='number of concurent threads for performing requests')
+        common.add_argument('-v', '--verbose', dest='verbose_count',
                             action='count', default=0,
                             help='for more verbose use multiple times')
-        parser.add_argument('-q', '--quiet', dest='quiet_count',
+        common.add_argument('-q', '--quiet', dest='quiet_count',
                             action='count', default=0,
                             help='for more quiet use multiple times')
-        parser.add_argument('-l', '--log',
+        common.add_argument('-l', '--log',
                             type=argparse.FileType('at'), default=sys.stderr,
                             help='redirect log to a file')
-        parser.add_argument('-c', '--concurrency', type=int, default=0,
-                            help='number of concurent threads for performing requests')
-        # parser.add_argument('-o', '--output',
-        #                     type=argparse.FileType('w'), default=sys.stdout,
-        #                     help='redirect output to a file')
-        parser.add_argument('-k', '--section', default='app:api',
+        common.add_argument('-k', '--section', default='app:api',
                             help='section name in config, default [app:api]')
-        parser.add_argument('-a', '--after', metavar='TENDER_ID',
+        common.add_argument('-a', '--after', metavar='TENDER_ID',
                             help='start tenderID in format UA-YYYY-MM-DD')
-        parser.add_argument('-b', '--before', metavar='TENDER_ID',
+        common.add_argument('-b', '--before', metavar='TENDER_ID',
                             help='end tenderID in format UA-YYYY-MM-DD')
-        parser.add_argument('-t', '--tenderID', action='append',
+        common.add_argument('-t', '--tenderID', action='append',
                             help='process only these tenderID (may be multiple times)')
-        parser.add_argument('-d', '--docid', action='append',
+        common.add_argument('-d', '--docid', action='append',
                             help='process only these hex id (may be multiple times)')
-        parser.add_argument('-x', '--except', action='append', dest='ignore_id',
+        common.add_argument('-x', '--except', action='append', dest='ignore_id',
                             help='ignore some tenders by hex tender.id (not tenderID)')
-        parser.add_argument('-p', '--procedure', action='append', dest='method_type',
+        common.add_argument('-p', '--procedure', action='append', dest='method_type',
                             help='filter by tender procurementMethodType (default any)')
-        parser.add_argument('-s', '--status', action='append',
+        common.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
-        parser.add_argument('-n', '--limit', type=int, default=-1,
+        common.add_argument('-n', '--limit', type=int, default=-1,
                             help='stop after found and patch N tenders')
-        parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
+        common.add_argument('-u', '--api-url', default='127.0.0.1:8080',
                             help='url to API (default 127.0.0.1:8080) or "disable"')
-        parser.add_argument('-m', '--dateModified', action='store_true',
+        common.add_argument('-m', '--dateModified', action='store_true',
                             help='update tender.dateModified (default no)')
-        parser.add_argument('--write', action='store_true',
-                            help='allow changes to couch database')
+        common.add_argument('--write', action='store_true',
+                            help='save changes to couch database (default no)')
 
-        if '--help-patches' in argv:
-            print("Available patches: {}".format(", ".join(self.commands.keys())))
-            sys.exit(0)
+        for key in self.ALLOW_PATCHES:
+            cmd =  self.commands[key]
+            cmd.parser = subparsers.add_parser(key, help=cmd.help, parents=[common], epilog=epilog)
+            group = cmd.parser.add_argument_group('{} arguments'.format(key))
+            cmd.add_arguments(group)
 
-        for cmd in self.commands.values():
-            cmd.add_arguments(parser)
-
-        args = parser.parse_args(argv[1:])
-
-        if args.patch_name not in self.commands:
-            raise ValueError("Unknown patch name '{}' choose from {}"
-                            .format(args.patch_name, self.commands.keys()))
-
-        self.patch = self.commands[args.patch_name]
-        self.patch.check_arguments(args)
-        self.args = args
+        self.args = parser.parse_args(argv[1:])
+        patch_class = self.commands.get(self.args.patch_name)
+        self.patch = patch_class()
+        try:
+            self.patch.check_arguments(self.args)
+        except Exception as e:
+            self.patch.parser.print_usage()
+            print self.patch.parser.prog, "error:", e
+            sys.exit(1)
 
     def load_commands(self):
         self.commands = {}
         for command in self.ALLOW_PATCHES:
             name = "openprocurement.patchdb.commands.{}".format(command)
             module = importlib.import_module(name)
-            self.commands[command] = module.Command()
+            self.commands[command] = module.Command
 
     def init_client(self):
         self.api_url = self.args.api_url
@@ -163,15 +161,18 @@ class PatchApp(object):
         retry = max_retry
         while retry:
             retry -= 1
+            doc_id = None
             try:
                 doc_id, doc_rev = self.db.save(new)
                 LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
                 self.saved += 1
                 retry = 0
             except Exception as e:
+                if not doc_id:
+                    doc_id, doc_rev = new['_id'], new.get('_rev', None)
                 LOG.error("Can't save {} rev {} error {}".format(doc_id, doc_rev, e))
                 if not retry:
-                    LOG.exception("Exception trace")
+                    self.should_exit = True
                     raise
                 time.sleep(max_retry - retry)
 
@@ -188,7 +189,7 @@ class PatchApp(object):
             return False
         if self.args.dateModified:
             old_dateModified = new.get('dateModified', '')
-            new['dateModified'] = get_now()
+            new['dateModified'] = get_now().isoformat()
             if old_dateModified and new['dateModified'] < old_dateModified:
                 raise ValueError(
                     "Tender {} dateModified {} greater than new {}".format(
@@ -279,17 +280,21 @@ class PatchApp(object):
                 LOG.info("Stop after limit {} reached".format(self.total))
                 break
 
-        worker = "[Thread-{}:{}] ".format(remainder+1, modulus) if modulus else ""
-        LOG.info("{}Total {} tenders {} changed {} saved".format(worker, self.total, self.changed, self.saved))
-        self.db = None
-        server = None
+        if not modulus:
+            self.print_total()
+            self.db = None
+            server = None
+
+    def print_total(self, prefix=''):
+        LOG.info("{}Total {} tenders {} changed {} saved".format(prefix, self.total, self.changed, self.saved))
 
 
 def main():
     app = PatchApp(sys.argv)
 
     level = max(logging.INFO + 10 * app.args.quiet_count - 10 * app.args.verbose_count, logging.DEBUG)
-    logging.basicConfig(stream=app.args.log, level=level, format='%(asctime)-15s %(levelname)s %(message)s')
+    logformat = '%(asctime)-15s [%(threadName)s] %(levelname)s %(message)s'
+    logging.basicConfig(stream=app.args.log, level=level, format=logformat)
     LOG.setLevel(level)
     app.logger = LOG
 
@@ -316,7 +321,7 @@ def main():
         finally:
             logging.shutdown()
 
-        LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
+        app.print_total()
         return
 
     # else single thread
