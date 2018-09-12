@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import pytz
 import time
 import logging
 import argparse
 import requests
 import importlib
+import threading
 from ConfigParser import ConfigParser
 from couchdb import Server, Session
 from jsonpatch import make_patch
@@ -16,6 +18,11 @@ __version__ = '0.8.0b'
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
+TZ = pytz.timezone(os.environ['TZ'] if 'TZ' in os.environ else 'Europe/Kiev')
+
+
+def get_now():
+    return datetime.now(TZ)
 
 
 def get_with_retry(url, require_text=''):
@@ -49,6 +56,7 @@ class PatchApp(object):
     def __init__(self, argv):
         self.load_commands()
         self.parse_arguments(argv)
+        self.should_exit = False
 
     def parse_arguments(self, argv):
         formatter_class = argparse.RawDescriptionHelpFormatter
@@ -70,6 +78,8 @@ class PatchApp(object):
         parser.add_argument('-l', '--log',
                             type=argparse.FileType('at'), default=sys.stderr,
                             help='redirect log to a file')
+        parser.add_argument('-c', '--concurrency', type=int, default=0,
+                            help='number of concurent threads for performing requests')
         # parser.add_argument('-o', '--output',
         #                     type=argparse.FileType('w'), default=sys.stdout,
         #                     help='redirect output to a file')
@@ -92,7 +102,9 @@ class PatchApp(object):
         parser.add_argument('-n', '--limit', type=int, default=-1,
                             help='stop after found and patch N tenders')
         parser.add_argument('-u', '--api-url', default='127.0.0.1:8080',
-                            help='url to API (default 127.0.0.1:8080)')
+                            help='url to API (default 127.0.0.1:8080) or "disable"')
+        parser.add_argument('-m', '--dateModified', action='store_true',
+                            help='update tender.dateModified (default no)')
         parser.add_argument('--write', action='store_true',
                             help='allow changes to couch database')
 
@@ -122,10 +134,12 @@ class PatchApp(object):
 
     def init_client(self):
         self.api_url = self.args.api_url
+        if self.api_url == 'disable':
+            return
         if '://' not in self.api_url:
             self.api_url = 'http://' + self.api_url
         if '/api/' not in self.api_url:
-            self.api_url += '/api/2.3/tenders'
+            self.api_url += '/api/0/tenders'
         get_with_retry(self.api_url, 'data')
 
     def create_tender(self, tender):
@@ -143,10 +157,23 @@ class PatchApp(object):
         if not self.args.write:
             LOG.info('Not saved')
             return False
-        doc_id, doc_rev = self.db.save(tender)
-        LOG.info('Saved {} rev {}'.format(doc_id, doc_rev))
-        self.saved += 1
-        return True
+        return self.save_with_retry(tender)
+
+    def save_with_retry(self, new, max_retry=5):
+        retry = max_retry
+        while retry:
+            retry -= 1
+            try:
+                doc_id, doc_rev = self.db.save(new)
+                LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
+                self.saved += 1
+                retry = 0
+            except Exception as e:
+                LOG.error("Can't save {} rev {} error {}".format(doc_id, doc_rev, e))
+                if not retry:
+                    LOG.exception("Exception trace")
+                    raise
+                time.sleep(max_retry - retry)
 
     def save_tender(self, tender, old, new):
         patch = get_revision_changes(new, old)
@@ -159,12 +186,14 @@ class PatchApp(object):
         if not self.args.write:
             LOG.info('Not saved')
             return False
-        doc_id, doc_rev = self.db.save(new)
-        LOG.info('Saved {} rev {}'.format(doc_id, doc_rev))
-        self.saved += 1
-        return True
+        if self.args.dateModified:
+            new['dateModified'] = get_now()
+        return self.save_with_retry(new)
 
     def check_tender(self, tender, check_text, check_write=False):
+        if self.api_url == 'disable':
+            LOG.debug("Not checked {}".format(tender.id))
+            return
         if check_write and not self.args.write:
             LOG.debug("Not checked {}".format(tender.id))
             return
@@ -172,7 +201,7 @@ class PatchApp(object):
         get_with_retry(url, check_text)
         LOG.debug("Check OK, found {}".format(check_text))
 
-    def patch_all(self):
+    def patch_all(self, modulus=None, remainder=None):
         args = self.args
         config = ConfigParser()
         config.read(args.config)
@@ -190,16 +219,29 @@ class PatchApp(object):
         docs_list = args.docid if args.docid else db
 
         for docid in docs_list:
+            if self.should_exit:
+                LOG.info("Exit by user interrupt".format(remainder))
+                break
+            if modulus and remainder is not None:
+                try:
+                    docno = int(docid[:8], 16)
+                except ValueError:
+                    docno = 1
+                if docno % modulus != remainder:
+                    continue
+
             doc = db.get(docid)
+
             if not doc:
                 LOG.warning("Not found {}".format(docid))
                 continue
-            if doc.get('doc_type') != 'Tender':
+            if doc.get('doc_type') == 'Tender':
+                tender = Tender().import_data(doc, partial=True)
+                if not tender.tenderID:
+                    raise ValueError("Bad tenderID {}".format(docid))
+            else:
                 LOG.debug("Ignore {} by doc_type {}".format(docid, doc.get('doc_type')))
                 continue
-            tender = Tender().import_data(doc, partial=True)
-            if not tender.tenderID:
-                raise ValueError("Bad tenderID {}".format(docid))
             if args.after and tender.tenderID < args.after:
                 LOG.debug("Ignore {} by tenderID {}".format(docid, tender.tenderID))
                 continue
@@ -232,7 +274,8 @@ class PatchApp(object):
                 LOG.info("Stop after limit {} reached".format(self.total))
                 break
 
-        LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
+        worker = "[Thread-{}:{}] ".format(remainder+1, modulus) if modulus else ""
+        LOG.info("{}Total {} tenders {} changed {} saved".format(worker, self.total, self.changed, self.saved))
         self.db = None
         server = None
 
@@ -245,12 +288,40 @@ def main():
     LOG.setLevel(level)
     app.logger = LOG
 
+    if app.args.concurrency > 1:
+        LOG.info("Start {} threads...".format(app.args.concurrency))
+
+        threads_list = list()
+        modulus = app.args.concurrency
+        for remainder in range(modulus):
+            thread = threading.Thread(target=app.patch_all, args=(modulus, remainder))
+            threads_list.append(thread)
+            thread.daemon = True
+            thread.start()
+
+        time.sleep(1)
+
+        try:
+            for thread in threads_list:
+                thread.join()
+        except KeyboardInterrupt:
+            LOG.error('Program interrupted!')
+            app.should_exit = True
+            time.sleep(1)
+        finally:
+            logging.shutdown()
+
+        LOG.info("Total {} tenders {} changed {} saved".format(self.total, self.changed, self.saved))
+        return
+
+    # else single thread
     try:
         app.patch_all()
     except KeyboardInterrupt:
         LOG.error('Program interrupted!')
     finally:
         logging.shutdown()
+    return
 
 
 if __name__ == '__main__':
