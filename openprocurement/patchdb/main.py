@@ -51,8 +51,8 @@ def get_revision_changes(dst, src):
 
 
 class PatchApp(object):
-    ALLOW_PATCHES = ['cancel_auction', 'clone_tender',  'remove_auction_options', 'remove_auction_period',
-                     'replace_documents_url']
+    ALLOW_PATCHES = ['cancel_auction', 'clone_tender', 'remove_auction_options', 'remove_auction_period',
+                     'replace_documents_url', 'update_ts_features']
 
     def __init__(self, argv):
         self.load_commands()
@@ -137,7 +137,7 @@ class PatchApp(object):
         if '://' not in self.api_url:
             self.api_url = 'http://' + self.api_url
         if '/api/' not in self.api_url:
-            self.api_url += '/api/0/tenders'
+            self.api_url += '/api/2.3/tenders'
         get_with_retry(self.api_url, 'data')
 
     def create_tender(self, tender):
