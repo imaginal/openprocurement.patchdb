@@ -6,27 +6,44 @@ from openprocurement.patchdb.commands import BaseCommand
 class Command(BaseCommand):
     help = 'Replace domain in documents url'
     required_document_fields = set(['id', 'title', 'format', 'url'])
+    required_auction_fields = set(['id', 'title', 'value', 'auctionUrl'])
+    auction_url_search = None
+    doc_url_search = None
 
     def add_arguments(self, parser):
-        parser.add_argument('--url-search', default='',
-                            help='URL to search (regexp)')
-        parser.add_argument('--url-replace', default='',
-                            help='URL to replace')
+        parser.add_argument('--doc-url-search', default='',
+                            help='document URL to search (regexp)')
+        parser.add_argument('--doc-url-replace', default='',
+                            help='document URL to replace')
+        parser.add_argument('--auction-url-search', default='',
+                            help='auction URL to search (regexp)')
+        parser.add_argument('--auction-url-replace', default='',
+                            help='auction URL to replace')
 
     def check_arguments(self, args):
-        if not args.url_search:
+        if not args.doc_url_search and not args.auction_url_search:
             raise ValueError("Nothing to search")
-        self.url_search = re.compile(args.url_search)
-        self.url_replace = args.url_replace
+        if args.doc_url_search:
+            self.doc_url_search = re.compile(args.doc_url_search)
+        self.doc_url_replace = args.doc_url_replace
+        if args.auction_url_search:
+            self.auction_url_search = re.compile(args.auction_url_search)
+        self.auction_url_replace = args.auction_url_replace
 
     def document_replace_url(self, doc):
-        if self.url_search.search(doc['url']):
-            doc['url'] = self.url_search.sub(self.url_replace, doc['url'])
+        if self.doc_url_search and self.doc_url_search.search(doc['url']):
+            doc['url'] = self.doc_url_search.sub(self.url_replace, doc['url'])
+
+    def auction_replace_url(self, doc):
+        if self.auction_url_search and self.auction_url_search.search(doc['auctionUrl']):
+            doc['auctionUrl'] = self.auction_url_search.sub(self.auction_replace, doc['auctionUrl'])
 
     def recursive_find_and_replace(self, root):
         if isinstance(root, dict):
             if set(root.keys()) >= self.required_document_fields:
                 self.document_replace_url(root)
+            if set(root.keys()) >= self.required_auction_fields:
+                self.auction_replace_url(root)
             for item in root.values():
                 if isinstance(item, (dict, list)):
                     self.recursive_find_and_replace(item)
