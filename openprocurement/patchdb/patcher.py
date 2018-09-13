@@ -14,7 +14,7 @@ from .models import Tender, get_now, generate_id, generate_tender_id
 
 class PatchApp(object):
     ALLOW_PATCHES = ['cancel_auction', 'clone_tender', 'remove_auction_options', 'remove_auction_period',
-                     'replace_documents_url', 'update_ts_features']
+                     'replace_documents_url', 'rollback_last_patch', 'update_ts_features']
 
     def __init__(self, argv):
         self.load_commands()
@@ -46,13 +46,15 @@ class PatchApp(object):
                             help='redirect log to a file')
         common.add_argument('-k', '--section', default='app:api',
                             help='section name in config, default [app:api]')
+        common.add_argument('-L', '--label', metavar='CUSTOM_LABEL', default='',
+                            help='custom patch label, will be saved at revisions')
         common.add_argument('-a', '--after', metavar='TENDER_ID',
                             help='start tenderID in format UA-YYYY-MM-DD')
         common.add_argument('-b', '--before', metavar='TENDER_ID',
                             help='end tenderID in format UA-YYYY-MM-DD')
         common.add_argument('-t', '--tenderID', action='append',
                             help='process only these tenderID (may be multiple times)')
-        common.add_argument('-d', '--docid', action='append',
+        common.add_argument('-i', '--id', dest='docid', action='append',
                             help='process only these hex id (may be multiple times)')
         common.add_argument('-x', '--except', action='append', dest='ignore_id',
                             help='ignore some tenders by hex tender.id (not tenderID)')
@@ -78,6 +80,7 @@ class PatchApp(object):
         self.args = args = parser.parse_args(argv[1:])
         patch_class = self.commands.get(args.patch_name)
         self.patch = patch_class()
+        self.patch_label = args.label or args.patch_name
         try:
             self.patch.check_arguments(args)
         except Exception as e:
@@ -119,7 +122,7 @@ class PatchApp(object):
             return False
         return self.save_with_retry(tender)
 
-    @with_retry(tries=3, skip=ResourceConflict)
+    @with_retry(tries=3, raise_on=ResourceConflict)
     def save_with_retry(self, new):
         doc_id, doc_rev = self.db.save(new)
         LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
@@ -130,7 +133,11 @@ class PatchApp(object):
         if not patch:
             LOG.info('{} {} no changes made'.format(tender.id, tender.tenderID))
             return
-        new['revisions'].append({'author': 'patchdb', 'changes': patch, 'rev': tender.rev})
+        new['revisions'].append({
+            'author': 'patchdb/{}'.format(self.patch_label),
+            'changes': patch,
+            'date': get_now().isoformat(),
+            'rev': tender.rev})
         LOG.info('{} {} changes {}'.format(tender.id, tender.tenderID, patch))
         self.changed += 1
         if not self.args.write:
@@ -184,7 +191,7 @@ class PatchApp(object):
             LOG.debug("Ignore {} by status {}".format(docid, tender.status))
             return
         if args.docid and tender.id not in args.docid:
-            LOG.debug("Ignore {} by tender.id in -d/--docid".format(docid))
+            LOG.debug("Ignore {} by tender.id in -i/--id".format(docid))
             return
         if args.ignore_id and tender.id in args.ignore_id:
             LOG.debug("Ignore {} by tender.id in -x/--except".format(docid))
