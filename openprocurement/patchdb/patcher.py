@@ -9,23 +9,31 @@ from couchdb.http import ResourceConflict
 
 from . import __version__
 from .utils import get_with_retry, get_revision_changes, with_retry, LOG
-from .models import Tender, get_now, generate_id, generate_tender_id
+from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract
 
 
 class PatchApp(object):
     ALLOW_PATCHES = ['cancel_auction', 'clone_tender', 'remove_auction_options', 'remove_auction_period',
                      'replace_documents_url', 'rollback_last_patch', 'update_ts_features']
+    ALLOW_DOCTYPE = ['Tender', 'Plan', 'Contract']
 
     def __init__(self, argv):
         self.load_commands()
         self.parse_arguments(argv)
         self.has_error = False
+        self.total = 0
+        self.patched = 0
+        self.changed = 0
+        self.created = 0
+        self.saved = 0
+        self.lock = None
 
     def parse_arguments(self, argv):
         formatter_class = argparse.RawDescriptionHelpFormatter
         epilog = "patchdb v{}".format(__version__)
-        parser = argparse.ArgumentParser(description='Console utility for patching tender documents direct in couchdb',
-                                         formatter_class=formatter_class, epilog=epilog)
+        parser = argparse.ArgumentParser(
+            description='Console utility for patching tender documents direct in couchdb',
+            formatter_class=formatter_class, epilog=epilog)
         parser.add_argument('--version', action='version',
                             version='%(prog)s {}'.format(__version__))
         subparsers = parser.add_subparsers(dest='patch_name', metavar='patch_name')
@@ -62,6 +70,8 @@ class PatchApp(object):
                             help='filter by tender procurementMethodType (default any)')
         common.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
+        common.add_argument('-T', '--type', action='append', dest='doc_type',
+                            help='filter by model type (default Tender)')
         common.add_argument('-n', '--limit', type=int, default=-1,
                             help='stop after found and patch N tenders')
         common.add_argument('-u', '--api-url', default='127.0.0.1:8080',
@@ -78,9 +88,15 @@ class PatchApp(object):
             cmd.add_arguments(group)
 
         self.args = args = parser.parse_args(argv[1:])
+        self.patch_label = args.label or args.patch_name
+        if not self.args.doc_type:
+            self.args.doc_type = ['Tender']
+        elif not set(self.ALLOW_DOCTYPE) >= set(self.args.doc_type):
+            print parser.prog, "error: unknown --type", self.args.doc_type, "allowed", self.ALLOW_DOCTYPE
+            sys.exit(1)
+
         patch_class = self.commands.get(args.patch_name)
         self.patch = patch_class()
-        self.patch_label = args.label or args.patch_name
         try:
             self.patch.check_arguments(args)
         except Exception as e:
@@ -95,15 +111,12 @@ class PatchApp(object):
             module = importlib.import_module(name)
             self.commands[command] = module.Command
 
-    def init_client(self):
-        self.api_url = self.args.api_url
-        if self.api_url == 'disable':
-            return
-        if '://' not in self.api_url:
-            self.api_url = 'http://' + self.api_url
-        if '/api/' not in self.api_url:
-            self.api_url += '/api/2.3/tenders'
-        get_with_retry(self.api_url, 'data')
+    def safe_inc(self, attr):
+        if self.lock:
+            with self.lock:
+                setattr(self, attr, getattr(self, attr, 0) + 1)
+        else:
+            setattr(self, attr, getattr(self, attr, 0) + 1)
 
     def create_tender(self, tender):
         if '_rev' in tender:
@@ -116,7 +129,7 @@ class PatchApp(object):
             LOG.info('Clone {} {} to {} {}'.format(old_id, old_tenderID, tender['_id'], tender['tenderID']))
         else:
             LOG.info('Create {} {}'.format(tender['_id'], tender['tenderID']))
-        self.created += 1
+        self.safe_inc('created')
         if not self.args.write:
             LOG.info('Not saved')
             return False
@@ -126,7 +139,8 @@ class PatchApp(object):
     def save_with_retry(self, new):
         doc_id, doc_rev = self.db.save(new)
         LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
-        self.saved += 1
+        self.safe_inc('saved')
+        return True
 
     def save_tender(self, tender, old, new):
         patch = get_revision_changes(new, old)
@@ -139,7 +153,7 @@ class PatchApp(object):
             'date': get_now().isoformat(),
             'rev': tender.rev})
         LOG.info('{} {} changes {}'.format(tender.id, tender.tenderID, patch))
-        self.changed += 1
+        self.safe_inc('changed')
         if not self.args.write:
             LOG.info('Not saved')
             return False
@@ -169,14 +183,35 @@ class PatchApp(object):
 
         doc = self.db.get(docid)
 
+        if self.has_error:
+            return
+
         if not doc:
             raise IndexError("Document Not Found {}".format(docid))
-        if doc.get('doc_type') == 'Tender':
+
+        doc_type = doc.get('doc_type')
+
+        if not doc_type:
+            LOG.debug("Ignore {} by empty doc_type".format(docid))
+            return
+        if doc_type not in args.doc_type:
+            LOG.debug("Ignore {} by doc_type {}".format(docid, doc_type))
+            return
+
+        if doc_type == 'Tender':
             tender = Tender().import_data(doc, partial=True)
             if not tender.tenderID:
                 raise ValueError("Bad tenderID {}".format(docid))
+        elif doc_type == 'Plan':
+            tender = Plan().import_data(doc, partial=True)
+            if not tender.planID:
+                raise ValueError("Bad tenderID {}".format(docid))
+        elif doc_type == 'Contract':
+            tender = Contract().import_data(doc, partial=True)
+            if not tender.contractID:
+                raise ValueError("Bad tenderID {}".format(docid))
         else:
-            LOG.debug("Ignore {} by doc_type {}".format(docid, doc.get('doc_type')))
+            LOG.debug("Ignore {} by doc_type {}".format(docid, doc_type))
             return
         if args.after and tender.tenderID < args.after:
             LOG.debug("Ignore {} by tenderID {}".format(docid, tender.tenderID))
@@ -204,7 +239,27 @@ class PatchApp(object):
 
         self.patch.patch_tender(self, tender, doc)
 
-        self.total += 1
+        self.safe_inc('patched')
+
+    def init_app(self):
+        config = ConfigParser()
+        config.read(self.args.config)
+        settings = dict(config.items(self.args.section))
+
+        db_name = os.environ.get('DB_NAME', settings['couchdb.db_name'])
+        self.server = Server(settings.get('couchdb.url'),
+                             session=Session(retry_delays=range(10)))
+        self.db = self.server[db_name]
+        self.server_id = settings.get('id', '1')
+
+        # init api client
+        self.api_url = self.args.api_url
+        if self.api_url != 'disable':
+            if '://' not in self.api_url:
+                self.api_url = 'http://' + self.api_url
+            if '/api/' not in self.api_url:
+                self.api_url += '/api/2.3/tenders'
+            get_with_retry(self.api_url, 'data')
 
     def patch_thread(self, modulus=None, remainder=None):
         try:
@@ -215,24 +270,11 @@ class PatchApp(object):
 
     def patch_all(self, modulus=None, remainder=None):
         args = self.args
-        config = ConfigParser()
-        config.read(args.config)
-        settings = dict(config.items(args.section))
 
-        self.init_client()
-
-        db_name = os.environ.get('DB_NAME', settings['couchdb.db_name'])
-        server = Server(settings.get('couchdb.url'), session=Session(retry_delays=range(10)))
-        self.db = db = server[db_name]
-        self.server_id = settings.get('id', '1')
-
-        self.total = self.changed = self.created = self.saved = 0
-
-        docs_list = args.docid if args.docid else db
+        docs_list = args.docid if args.docid else self.db
 
         for docid in docs_list:
             if self.has_error:
-                LOG.info("Exit due to previous error")
                 break
             if args.limit > 0 and self.changed >= args.limit:
                 LOG.info("Stop after limit {} reached".format(self.changed))
@@ -247,10 +289,11 @@ class PatchApp(object):
 
             self.patch_tender(docid)
 
+            self.safe_inc('total')
+
         if not modulus:
             self.print_total()
-            self.db = None
-            server = None
 
-    def print_total(self, prefix=''):
-        LOG.info("{}Total {} tenders {} changed {} saved".format(prefix, self.total, self.changed, self.saved))
+    def print_total(self):
+        LOG.info("Patched {} of {} docs {} changed {} saved".format(
+                 self.patched, self.total, self.changed, self.saved))
