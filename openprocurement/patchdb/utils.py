@@ -1,56 +1,48 @@
 # -*- coding: utf-8 -*-
 import time
-import functools
 import logging
 import requests
-from jsonpatch import make_patch
+import functools
+import jsonpatch
 
 
 LOG = logging.getLogger('patchdb')
 SESSION = requests.Session()
 
 
-def get_with_retry(url, require_text='', max_retry=5):
-    for retry in range(max_retry):
-        try:
-            LOG.debug("GET {}".format(url))
-            resp = SESSION.get(url, timeout=30)
-            resp.raise_for_status()
-            if require_text and require_text not in resp.text:
-                raise ValueError('bad response require_text not found')
-            return resp.text
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            LOG.error("{} on GET {}".format(e.__class__.__name__, url))
-            LOG.debug("ERROR {}".format(e))
-            if retry >= max_retry - 1:
-                raise
-            time.sleep(retry + 1)
-
-
-def get_revision_changes(dst, src):
-    return make_patch(dst, src).patch
-
-
-def retry(ExceptionToCheck=Exception, tries=5, delay=1, backoff=2, logger=None):
-    def deco_retry(f):
-        @functools.wraps(f)
-        def f_retry(*args, **kwargs):
+def with_retry(tries, delay=1, backoff=2, log_error=LOG.error, check=Exception, skip=None):
+    def retry_decorator(func):
+        @functools.wraps(func)
+        def retry_function(*args, **kwargs):
             mtries, mdelay = tries, delay
             while mtries > 1:
                 try:
-                    return f(*args, **kwargs)
+                    return func(*args, **kwargs)
                 except (SystemExit, KeyboardInterrupt):
                     raise
-                except ExceptionToCheck, e:
-                    if logger:
-                        logger.error("%s: %s, retrying in %d seconds...",
-                                     type(e).__name__, str(e), mdelay)
+                except check, e:
+                    if skip and isinstance(e, skip):
+                        raise
+                    if log_error:
+                        log_error("{} {} {}".format(func.__name__, type(e).__name__, e))
                     for i in range(int(10 * mdelay)):
                         time.sleep(0.1)
                     mtries -= 1
                     mdelay *= backoff
-            return f(*args, **kwargs)
-        return f_retry
-    return deco_retry
+            return func(*args, **kwargs)
+        return retry_function
+    return retry_decorator
+
+
+@with_retry(tries=3)
+def get_with_retry(url, require_text=''):
+    LOG.debug("GET {}".format(url))
+    resp = SESSION.get(url, timeout=30)
+    resp.raise_for_status()
+    if require_text and require_text not in resp.text:
+        raise ValueError('bad response require_text not found')
+    return resp.text
+
+
+def get_revision_changes(dst, src):
+    return jsonpatch.make_patch(dst, src).patch
