@@ -22,7 +22,7 @@ def main():
         threads_list = list()
         modulus = app.args.concurrency
         for remainder in range(modulus):
-            thread = threading.Thread(target=app.patch_all,
+            thread = threading.Thread(target=app.patch_thread,
                                       args=(modulus, remainder))
             threads_list.append(thread)
             thread.daemon = True
@@ -33,14 +33,15 @@ def main():
                 thread.join()
         except KeyboardInterrupt:
             LOG.error('Program interrupted!')
-            app.should_exit = True
+            app.has_error = True
             import time
             time.sleep(1)
         finally:
             logging.shutdown()
 
         app.print_total()
-        return
+
+        return app.has_error
 
     # else single thread
     try:
@@ -49,7 +50,8 @@ def main():
         LOG.error('Program interrupted!')
     finally:
         logging.shutdown()
-    return
+
+    return app.has_error
 
 
 if __name__ == '__main__':

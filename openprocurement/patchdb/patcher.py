@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import time
 import argparse
 import importlib
 from ConfigParser import ConfigParser
 from couchdb import Server, Session
+from couchdb.http import ResourceConflict
 
 from . import __version__
-from .utils import get_with_retry, get_revision_changes, LOG
+from .utils import get_with_retry, get_revision_changes, with_retry, LOG
 from .models import Tender, get_now, generate_id, generate_tender_id
 
 
@@ -19,7 +19,7 @@ class PatchApp(object):
     def __init__(self, argv):
         self.load_commands()
         self.parse_arguments(argv)
-        self.should_exit = False
+        self.has_error = False
 
     def parse_arguments(self, argv):
         formatter_class = argparse.RawDescriptionHelpFormatter
@@ -119,22 +119,11 @@ class PatchApp(object):
             return False
         return self.save_with_retry(tender)
 
-    def save_with_retry(self, new, max_retry=5):
-        for retry in range(max_retry):
-            doc_id = None
-            try:
-                doc_id, doc_rev = self.db.save(new)
-                LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
-                self.saved += 1
-                break
-            except Exception as e:
-                if not doc_id:
-                    doc_id, doc_rev = new['_id'], new.get('_rev', None)
-                LOG.error("Can't save {} rev {} error {}".format(doc_id, doc_rev, e))
-                if retry >= max_retry - 1:
-                    self.should_exit = True
-                    raise
-                time.sleep(retry + 1)
+    @with_retry(tries=3, skip=ResourceConflict)
+    def save_with_retry(self, new):
+        doc_id, doc_rev = self.db.save(new)
+        LOG.info("Saved {} rev {}".format(doc_id, doc_rev))
+        self.saved += 1
 
     def save_tender(self, tender, old, new):
         patch = get_revision_changes(new, old)
@@ -167,15 +156,14 @@ class PatchApp(object):
         get_with_retry(url, check_text)
         LOG.debug("Check OK, found {}".format(check_text))
 
+    @with_retry(tries=3)
     def patch_tender(self, docid):
         args = self.args
-        db = self.db
 
-        doc = db.get(docid)
+        doc = self.db.get(docid)
 
         if not doc:
-            LOG.warning("Not found {}".format(docid))
-            return
+            raise IndexError("Document Not Found {}".format(docid))
         if doc.get('doc_type') == 'Tender':
             tender = Tender().import_data(doc, partial=True)
             if not tender.tenderID:
@@ -211,12 +199,12 @@ class PatchApp(object):
 
         self.total += 1
 
-    def patch_tender_with_retry(self, docid, max_retry=3):
-        for retry in range(max_retry):
-            try:
-                self.patch_tender(docid)
-            except Exception:
-                raise
+    def patch_thread(self, modulus=None, remainder=None):
+        try:
+            self.patch_all(modulus, remainder)
+        except Exception:
+            self.has_error = True
+            raise
 
     def patch_all(self, modulus=None, remainder=None):
         args = self.args
@@ -236,8 +224,8 @@ class PatchApp(object):
         docs_list = args.docid if args.docid else db
 
         for docid in docs_list:
-            if self.should_exit:
-                LOG.info("Exit by user interrupt".format(remainder))
+            if self.has_error:
+                LOG.info("Exit due to previous error")
                 break
             if args.limit > 0 and self.changed >= args.limit:
                 LOG.info("Stop after limit {} reached".format(self.changed))
@@ -250,7 +238,7 @@ class PatchApp(object):
                 if docno % modulus != remainder:
                     continue
 
-            self.patch_tender_with_retry(docid)
+            self.patch_tender(docid)
 
         if not modulus:
             self.print_total()
