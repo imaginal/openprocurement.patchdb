@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import re
 from time import sleep
@@ -50,20 +51,18 @@ def generate_tender_id(tenderID, db, server_id=None, write=False):
         server_id = m.group(4)[1:]
     key = m.group(2)
     tenderIDdoc = 'tenderID_' + server_id if server_id else 'tenderID'
-    retry = 10
-    while retry > 0:
-        retry -= 1
+    max_retry = 10
+    for retry in range(max_retry):
         try:
             tenderID = shadow_get(db, tenderIDdoc, {'_id': tenderIDdoc})
             index = tenderID.get(key, 1)
             tenderID[key] = index + 1
             shadow_save(db, tenderID, write)
+            break
         except Exception as e:  # pragma: no cover
-            if not retry:
+            if retry >= max_retry - 1:
                 raise e
             sleep(0.1)
-        else:
-            break
     return '{}{}-{:06}{}'.format(m.group(1), m.group(2), index, server_id and '-' + server_id)
 
 
