@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
+import time
 import logging
 import threading
 from .patcher import PatchApp
@@ -16,10 +17,13 @@ def main():
     LOG.setLevel(loglevel)
     app.logger = LOG
 
+    app.init_app()
+
     if app.args.concurrency > 1:
         LOG.info("Start {} threads...".format(app.args.concurrency))
 
         threads_list = list()
+        app.lock = threading.Lock()
         modulus = app.args.concurrency
         for remainder in range(modulus):
             thread = threading.Thread(target=app.patch_thread,
@@ -30,12 +34,14 @@ def main():
 
         try:
             for thread in threads_list:
-                thread.join()
-        except KeyboardInterrupt:
+                thread.join(0.1)
+            while sum([t.is_alive() for t in threads_list]):
+                time.sleep(0.1)
+        except (SystemExit, KeyboardInterrupt):
             LOG.error('Program interrupted!')
             app.has_error = True
-            import time
-            time.sleep(1)
+            for thread in threads_list:
+                thread.join(1)
         finally:
             logging.shutdown()
 
