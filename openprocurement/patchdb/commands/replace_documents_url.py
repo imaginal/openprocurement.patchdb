@@ -34,26 +34,32 @@ class Command(BaseCommand):
     def document_replace_url(self, doc):
         if self.doc_url_search and self.doc_url_search.search(doc['url']):
             doc['url'] = self.doc_url_search.sub(self.doc_url_replace, doc['url'])
+            return True
+        return False
 
     def auction_replace_url(self, doc):
         if self.auction_url_search and self.auction_url_search.search(doc['auctionUrl']):
             doc['auctionUrl'] = self.auction_url_search.sub(self.auction_url_replace, doc['auctionUrl'])
+            return True
+        return False
 
     def recursive_find_and_replace(self, root):
+        res = 0
         if isinstance(root, dict):
             if set(root.keys()) >= self.required_document_fields:
-                self.document_replace_url(root)
+                res += self.document_replace_url(root)
             if set(root.keys()) >= self.required_auction_fields:
-                self.auction_replace_url(root)
+                res += self.auction_replace_url(root)
             for item in root.values():
                 if isinstance(item, (dict, list)):
-                    self.recursive_find_and_replace(item)
+                    res += self.recursive_find_and_replace(item)
         elif isinstance(root, list):
             for item in root:
-                self.recursive_find_and_replace(item)
+                res += self.recursive_find_and_replace(item)
+        return res
 
     def patch_tender(self, patcher, tender, doc):
         new = deepcopy(doc)
-        self.recursive_find_and_replace(new)
-        patcher.save_tender(tender, doc, new)
-        patcher.check_tender(tender, tender.tenderID)
+        if self.recursive_find_and_replace(new) > 0:
+            patcher.save_tender(tender, doc, new)
+            patcher.check_tender(tender, tender.tenderID)
