@@ -5,12 +5,11 @@ from time import sleep
 from uuid import uuid4
 from pytz import timezone
 from datetime import datetime
-from iso8601 import parse_date, ParseError
-from couchdb_schematics.document import SchematicsDocument
-from schematics.exceptions import ConversionError, ValidationError
+from iso8601 import parse_date
 from schematics.models import Model
 from schematics.types import BaseType, StringType
 from schematics.types.compound import DictType, ListType, ModelType as BaseModelType
+from couchdb_schematics.document import SchematicsDocument
 
 
 TZ = timezone(os.environ['TZ'] if 'TZ' in os.environ else 'Europe/Kiev')
@@ -81,15 +80,10 @@ class IsoDateTimeType(BaseType):
     def to_native(self, value, context=None):
         if isinstance(value, datetime):
             return value
-        try:
-            date = parse_date(value, None)
-            if not date.tzinfo:
-                date = TZ.localize(date)
-            return date
-        except ParseError:
-            raise ConversionError(self.messages['parse'].format(value))
-        except OverflowError as e:
-            raise ConversionError(e.message)
+        date = parse_date(value, None)
+        if not date.tzinfo:
+            date = TZ.localize(date)
+        return date
 
     def to_primitive(self, value, context=None):
         return value.isoformat()
@@ -98,14 +92,6 @@ class IsoDateTimeType(BaseType):
 class Period(Model):
     startDate = IsoDateTimeType()  # The state date for the period.
     endDate = IsoDateTimeType()  # The end date for the period.
-
-    def validate_startDate(self, data, value):
-        if value and data.get('endDate') and data.get('endDate') < value:
-            raise ValidationError(u"period should begin before its end")
-
-
-class TenderAuctionPeriod(Period):
-    shouldStartAfter = IsoDateTimeType()
 
 
 class Revision(Model):
@@ -129,3 +115,44 @@ class Tender(SchematicsDocument, Model):
     revisions = ListType(ModelType(Revision), default=list())
     tenderID = StringType()
     status = StringType()
+
+
+class PlanTender(Model):
+    """Tender for planning model """
+    procurementMethod = StringType(default='')
+    procurementMethodType = StringType(default='')
+    tenderPeriod = ModelType(Period, required=True)
+
+
+class Plan(SchematicsDocument, Model):
+    dateModified = IsoDateTimeType()
+    tender = ModelType(PlanTender, required=True)
+    planID = StringType()
+    revisions = ListType(ModelType(Revision), default=list())
+
+    @property
+    def tenderID(self):
+        return self.planID
+
+    @property
+    def procurementMethodType(self):
+        return self.tender.procurementMethodType
+
+    @property
+    def status(self):
+        return 'plan'
+
+
+class Contract(SchematicsDocument, Model):
+    revisions = ListType(ModelType(Revision), default=list())
+    dateModified = IsoDateTimeType()
+    contractID = StringType()
+    status = StringType()
+
+    @property
+    def tenderID(self):
+        return self.contractID
+
+    @property
+    def procurementMethodType(self):
+        return 'contract'
