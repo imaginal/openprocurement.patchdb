@@ -43,9 +43,8 @@ def main():
             for thread in threads_list:
                 thread.join(1)
         finally:
+            app.print_total()
             logging.shutdown()
-
-        app.print_total()
 
         return app.has_error
 
@@ -55,6 +54,7 @@ def main():
     except KeyboardInterrupt:
         LOG.error('Program interrupted!')
     finally:
+        app.print_total()
         logging.shutdown()
 
     return app.has_error

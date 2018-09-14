@@ -283,20 +283,12 @@ class PatchApp(object):
             if args.limit > 0 and self.changed >= args.limit:
                 LOG.info("Stop after limit {} reached".format(self.changed))
                 break
-            if modulus and remainder is not None:
-                try:
-                    docno = int(docid[:8], 16)
-                except ValueError:
-                    docno = 1
-                if docno % modulus != remainder:
-                    continue
+            if modulus and hash(docid) % modulus != remainder:
+                continue
 
             self.patch_tender(docid)
 
             self.safe_inc('total')
-
-        if not modulus:
-            self.print_total()
 
     def print_total(self):
         LOG.info("Patched {} of {} docs {} changed {} saved".format(
