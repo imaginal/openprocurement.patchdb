@@ -9,13 +9,13 @@ from couchdb.http import ResourceConflict
 
 from . import __version__
 from .utils import get_with_retry, get_revision_changes, with_retry, LOG
-from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract
+from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract, Auction
 
 
 class PatchApp(object):
     ALLOW_PATCHES = ['cancel_auction', 'clone_tender', 'remove_auction_options', 'remove_auction_period',
                      'replace_documents_url', 'rollback_last_patch', 'update_ts_features']
-    ALLOW_DOCTYPE = ['Tender', 'Plan', 'Contract']
+    ALLOW_DOCTYPE = ['Tender', 'Plan', 'Contract', 'Auction']
 
     def __init__(self, argv):
         self.load_commands()
@@ -205,11 +205,15 @@ class PatchApp(object):
         elif doc_type == 'Plan':
             tender = Plan().import_data(doc, partial=True)
             if not tender.planID:
-                raise ValueError("Bad tenderID {}".format(docid))
+                raise ValueError("Bad planID {}".format(docid))
         elif doc_type == 'Contract':
             tender = Contract().import_data(doc, partial=True)
             if not tender.contractID:
-                raise ValueError("Bad tenderID {}".format(docid))
+                raise ValueError("Bad contractID {}".format(docid))
+        elif doc_type == 'Auction':
+            tender = Auction().import_data(doc, partial=True)
+            if not tender.auctionID:
+                raise ValueError("Bad auctionID {}".format(docid))
         else:
             LOG.debug("Ignore {} by doc_type {}".format(docid, doc_type))
             return

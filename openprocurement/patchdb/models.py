@@ -156,3 +156,15 @@ class Contract(SchematicsDocument, Model):
     @property
     def procurementMethodType(self):
         return 'contract'
+
+
+class Auction(SchematicsDocument, Model):
+    auctionID = StringType()
+    dateModified = IsoDateTimeType()
+    procurementMethodType = StringType()
+    revisions = ListType(ModelType(Revision), default=list())
+    status = StringType()
+
+    @property
+    def tenderID(self):
+        return self.auctionID
