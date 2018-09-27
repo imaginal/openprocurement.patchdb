@@ -10,7 +10,7 @@ from couchdb.http import ResourceConflict
 from .utils import get_with_retry, get_revision_changes, with_retry, LOG
 from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract, Auction
 
-__version__ = '0.14b'
+__version__ = '0.14c'
 
 
 class PatchApp(object):
@@ -61,9 +61,9 @@ class PatchApp(object):
                             help='start tenderID in format UA-YYYY-MM-DD')
         common.add_argument('-b', '--before', metavar='TENDER_ID',
                             help='end tenderID in format UA-YYYY-MM-DD')
-        common.add_argument('-t', '--tenderID', action='append',
+        common.add_argument('-t', '--tenderID', metavar='TENDER_ID', action='append',
                             help='process only these tenderID (may be multiple times)')
-        common.add_argument('-i', '--id', dest='docid', action='append',
+        common.add_argument('-i', '--id', metavar='DOC_ID', dest='docid', action='append',
                             help='process only these hex id (may be multiple times)')
         common.add_argument('-x', '--except', action='append', dest='ignore_id',
                             help='ignore some tenders by hex tender.id (not tenderID)')
@@ -72,7 +72,7 @@ class PatchApp(object):
         common.add_argument('-s', '--status', action='append',
                             help='filter by tender status (default any)')
         common.add_argument('-T', '--type', action='append', dest='doc_type',
-                            help='filter by model type (default Tender)')
+                            help='filter by doc_type (default Tender, try --help-type)')
         common.add_argument('-n', '--limit', type=int, default=-1,
                             help='stop after patch (change) N tenders')
         common.add_argument('-u', '--api-url', default='127.0.0.1:8080',
@@ -91,6 +91,10 @@ class PatchApp(object):
             cmd.parser = subparsers.add_parser(key, help=cmd.help, parents=[common], epilog=epilog)
             group = cmd.parser.add_argument_group('{} arguments'.format(key))
             cmd.add_arguments(group)
+
+        if '--help-type' in argv:
+            print parser.prog, "allowed --type", self.ALLOW_DOCTYPE
+            sys.exit(1)
 
         self.args = args = parser.parse_args(argv[1:])
         self.patch_label = args.label or args.patch_name
