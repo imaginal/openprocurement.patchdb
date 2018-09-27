@@ -11,8 +11,10 @@ requires = [
     'iso8601',
     'jsonpatch',
     'pytz',
+    'python-cjson',
     'requests',
     'setuptools',
+    'simplejson'
 ]
 
 entry_points = {
