@@ -7,9 +7,10 @@ from ConfigParser import ConfigParser
 from couchdb import Server, Session
 from couchdb.http import ResourceConflict
 
-from . import __version__
 from .utils import get_with_retry, get_revision_changes, with_retry, LOG
 from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract, Auction
+
+__version__ = '0.13b'
 
 
 class PatchApp(object):
@@ -73,11 +74,15 @@ class PatchApp(object):
         common.add_argument('-T', '--type', action='append', dest='doc_type',
                             help='filter by model type (default Tender)')
         common.add_argument('-n', '--limit', type=int, default=-1,
-                            help='stop after found and patch N tenders')
+                            help='stop after patch (change) N tenders')
         common.add_argument('-u', '--api-url', default='127.0.0.1:8080',
                             help='url to API (default 127.0.0.1:8080) or "disable"')
         common.add_argument('-m', '--dateModified', action='store_true',
                             help='update tender.dateModified (default no)')
+        common.add_argument('--changes', action='store_true', default=False,
+                            help='process documents by changes feed (default all_docs)')
+        common.add_argument('--cjson', action='store_true', default=False,
+                            help='use fast cjson library (default simplejson)')
         common.add_argument('--write', action='store_true',
                             help='save changes to couch database (default no)')
 
@@ -152,7 +157,8 @@ class PatchApp(object):
             'changes': patch,
             'date': get_now().isoformat(),
             'rev': tender.rev})
-        LOG.info('{} {} changes {}'.format(tender.id, tender.tenderID, patch))
+        doc_type = new.get('doc_type')
+        LOG.info('{} {} {} changes {}'.format(doc_type, tender.id, tender.tenderID, patch))
         self.safe_inc('changed')
         if not self.args.write:
             LOG.info('Not saved')
@@ -161,9 +167,8 @@ class PatchApp(object):
             old_dateModified = new.get('dateModified', '')
             new['dateModified'] = get_now().isoformat()
             if old_dateModified and new['dateModified'] < old_dateModified:
-                raise ValueError(
-                    "Tender {} dateModified {} greater than new {}".format(
-                        new['id'], old_dateModified, new['dateModified']))
+                raise ValueError("{} {} dateModified {} greater than new {}".format(
+                                 doc_type, new['id'], old_dateModified, new['dateModified']))
         return self.save_with_retry(new)
 
     def check_tender(self, tender, check_text, check_write=False):
@@ -239,7 +244,7 @@ class PatchApp(object):
             LOG.debug("Ignore {} by procurementMethodType {}".format(docid, tender.procurementMethodType))
             return
 
-        LOG.debug("Tender {} {} {} {}".format(docid, tender.tenderID, tender.status, tender.dateModified))
+        LOG.debug("{} {} {} {} {}".format(doc_type, docid, tender.tenderID, tender.dateModified, tender.status))
 
         self.patch.patch_tender(self, tender, doc)
 
@@ -249,6 +254,11 @@ class PatchApp(object):
         config = ConfigParser()
         config.read(self.args.config)
         settings = dict(config.items(self.args.section))
+
+        if self.args.cjson:
+            LOG.info("Enable cjson library")
+            from couchdb import json
+            json.use('cjson')
 
         db_name = os.environ.get('DB_NAME', settings['couchdb.db_name'])
         self.server = Server(settings.get('couchdb.url'),
@@ -265,6 +275,45 @@ class PatchApp(object):
                 self.api_url += '/api/2.3/tenders'
             get_with_retry(self.api_url, 'data')
 
+        # init docs list
+        if self.args.docid:
+            LOG.info("Process {} documents".format(len(self.args.docid)))
+            self.docs_list = self.args.docid
+        elif self.args.changes:
+            LOG.info("Process all documents by changes feed")
+            self.docs_list = self.db_changes()
+        else:
+            LOG.info("Process all documents")
+            self.docs_list = self.db_all_docs()
+
+    def db_all_docs(self, name='_all_docs', limit=10000, options={}):
+        options['limit'] = limit + 1
+        docs_list = list()
+        while True:
+            count = 0
+            for item in self.db.view(name, **options):
+                if count < limit:
+                    docs_list.append(item['id'])
+                count += 1
+            LOG.info("Preload {} doc.ids, last {}".format(len(docs_list), item.id))
+            if count <= limit:
+                break
+            options['startkey'] = item['key']
+            options['startkey_docid'] = item['id']
+        return docs_list
+
+    def db_changes(self, since=0, limit=10000):
+        docs_list = list()
+        while True:
+            changes = self.db.changes(since=since, limit=limit)
+            since = changes['last_seq']
+            if not changes['results']:
+                break
+            for item in changes['results']:
+                docs_list.append(item['id'])
+            LOG.info("Preload {} doc.ids, last_seq {}".format(len(docs_list), since))
+        return docs_list
+
     def patch_thread(self, modulus=None, remainder=None):
         try:
             self.patch_all(modulus, remainder)
@@ -275,9 +324,9 @@ class PatchApp(object):
     def patch_all(self, modulus=None, remainder=None):
         args = self.args
 
-        docs_list = args.docid if args.docid else self.db
+        docs_iter = iter(self.docs_list)
 
-        for docid in docs_list:
+        for docid in docs_iter:
             if self.has_error:
                 break
             if args.limit > 0 and self.changed >= args.limit:
