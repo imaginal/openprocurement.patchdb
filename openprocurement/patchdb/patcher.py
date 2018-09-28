@@ -44,6 +44,8 @@ class PatchApp(object):
                             help='path to openprocurement.api.ini (required)')
         common.add_argument('-r', '--concurrency', type=int, default=0,
                             help='number of concurent threads for performing requests')
+        common.add_argument('-f', '--processes', type=int, default=0,
+                            help='number of concurent processes for performing requests')
         common.add_argument('-v', '--verbose', dest='verbose_count',
                             action='count', default=0,
                             help='for more verbose use multiple times')
@@ -96,18 +98,22 @@ class PatchApp(object):
             print parser.prog, "allowed --type", self.ALLOW_DOCTYPE
             sys.exit(1)
 
-        self.args = args = parser.parse_args(argv[1:])
-        self.patch_label = args.label or args.patch_name
+        self.args = parser.parse_args(argv[1:])
+        self.patch_label = self.args.label or self.args.patch_name
         if not self.args.doc_type:
             self.args.doc_type = ['Tender']
         elif not set(self.ALLOW_DOCTYPE) >= set(self.args.doc_type):
             print parser.prog, "error: unknown --type", self.args.doc_type, "allowed", self.ALLOW_DOCTYPE
             sys.exit(1)
 
-        patch_class = self.commands.get(args.patch_name)
+        if self.args.concurrency and self.args.processes:
+            print parser.prog, "error: both --concurrency and --processes not allowed, choose one"
+            sys.exit(1)
+
+        patch_class = self.commands.get(self.args.patch_name)
         self.patch = patch_class()
         try:
-            self.patch.check_arguments(args)
+            self.patch.check_arguments(self.args)
         except Exception as e:
             self.patch.parser.print_usage()
             print self.patch.parser.prog, "error:", e
@@ -254,21 +260,23 @@ class PatchApp(object):
 
         self.safe_inc('patched')
 
+    def open_db(self):
+        self.server = Server(self.db_url, session=Session(retry_delays=range(10)))
+        self.db = self.server[self.db_name]
+
     def init_app(self):
         config = ConfigParser()
         config.read(self.args.config)
         settings = dict(config.items(self.args.section))
+        self.db_name = settings.get('couchdb.db_name')
+        self.db_url = settings.get('couchdb.url')
+        self.server_id = settings.get('id', '1')
+        self.open_db()
 
         if self.args.cjson:
             LOG.info("Enable cjson library")
             from couchdb import json
             json.use('cjson')
-
-        db_name = os.environ.get('DB_NAME', settings['couchdb.db_name'])
-        self.server = Server(settings.get('couchdb.url'),
-                             session=Session(retry_delays=range(10)))
-        self.db = self.server[db_name]
-        self.server_id = settings.get('id', '1')
 
         # init api client
         self.api_url = self.args.api_url
@@ -318,12 +326,21 @@ class PatchApp(object):
             LOG.info("Preload {} doc.ids, last_seq {}".format(len(docs_list), since))
         return docs_list
 
-    def patch_thread(self, modulus=None, remainder=None):
+    def patch_thread(self, modulus, remainder):
         try:
             self.patch_all(modulus, remainder)
         except Exception:
             self.has_error = True
             raise
+
+    def patch_process(self, modulus, remainder, shared_stat):
+        try:
+            self.open_db()
+            self.patch_all(modulus, remainder)
+        finally:
+            self.print_total()
+            self.update_stat(shared_stat, remainder)
+        sys.exit(self.has_error)
 
     def patch_all(self, modulus=None, remainder=None):
         args = self.args
@@ -346,3 +363,19 @@ class PatchApp(object):
     def print_total(self):
         LOG.info("Patched {} of {} docs {} changed {} saved".format(
                  self.patched, self.total, self.changed, self.saved))
+        if self.has_error:
+            LOG.error("Exit with error")
+
+    def update_stat(self, shared_stat, key=None, size=None):
+        stat = ['total', 'patched', 'changed', 'saved']
+        if key is None and size:
+            for i, attr in enumerate(stat):
+                value = 0
+                for key in range(size):
+                    offset = key * len(stat)
+                    value += shared_stat[offset + i]
+                setattr(self, attr, value)
+        else:
+            offset = key * len(stat)
+            for i, attr in enumerate(stat):
+                shared_stat[offset + i] = getattr(self, attr)
