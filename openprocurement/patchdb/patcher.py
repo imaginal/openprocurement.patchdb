@@ -10,7 +10,7 @@ from couchdb.http import ResourceConflict
 from .utils import get_with_retry, get_revision_changes, with_retry, LOG
 from .models import get_now, generate_id, generate_tender_id, Tender, Plan, Contract, Auction
 
-__version__ = '0.14c'
+__version__ = '0.15'
 
 
 class PatchApp(object):
