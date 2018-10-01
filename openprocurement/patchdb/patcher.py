@@ -223,8 +223,8 @@ class PatchApp(object):
                 raise ValueError("Bad planID {}".format(docid))
         elif doc_type == 'Contract':
             tender = Contract().import_data(doc, partial=True)
-            if not tender.contractID:
-                raise ValueError("Bad contractID {}".format(docid))
+            if not tender.tender_id:
+                raise ValueError("Bad contract.tender_id {}".format(docid))
         elif doc_type == 'Auction':
             tender = Auction().import_data(doc, partial=True)
             if not tender.auctionID:

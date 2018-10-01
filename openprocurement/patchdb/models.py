@@ -147,11 +147,12 @@ class Contract(SchematicsDocument, Model):
     revisions = ListType(ModelType(Revision), default=list())
     dateModified = IsoDateTimeType()
     contractID = StringType()
+    tender_id = StringType()
     status = StringType()
 
     @property
     def tenderID(self):
-        return self.contractID
+        return self.contractID or self.tender_id
 
     @property
     def procurementMethodType(self):
